@@ -1,7 +1,7 @@
 import re
 from typing import IO
 
-from DONetcodeParserLog import *
+from netcode_parser.Log import *
 
 
 # read all lines into a list and trim newlines
@@ -65,6 +65,14 @@ def should_skip_class(body: list) -> bool:
     return False
 
 
+def find_field_type_from_write_call_for_field_name(body: list, field_name: str) -> str:
+    for inner_line in body:
+        regex_type_result = re.findall(rf"param1.write(\w+).*{field_name}", inner_line)
+        if len(regex_type_result) > 0:
+            return regex_type_result[0]
+    raise RuntimeError("could not find write call")
+
+
 def parse_fields(body: list) -> list:
     fields = []
     for line in body:
@@ -73,6 +81,12 @@ def parse_fields(body: list) -> list:
             continue
             # raise RuntimeError(f"could not parse field definition in line {line}")
         field = {"name": res[0][0], "initialName": res[0][0], "type": res[0][1]}
+        if field["type"] == "int":
+            # search field definition in write line, it could be a short instead
+            field["type"] = find_field_type_from_write_call_for_field_name(body, field["name"])
+
+        field["type"] = field.get("type").lower()
+        log_debug(f"{field['type']} {field['name']};")
         fields.append(field)
     return fields
 
@@ -126,6 +140,7 @@ def serialize_packet_base(handle: IO):
         print(f"Skipping file {handle.name}")
         return None
     module_name, module_base = parse_class_definition(body)
+    log_debug_header(module_name)
     constants = parse_constants(body)
     constructor_definition = parse_constructor_definition(body, module_name)
     fields = parse_fields(body)
@@ -143,13 +158,16 @@ def serialize_packet_base(handle: IO):
     }
 
 
-KNOWN_TYPES = ["Boolean", "Byte", "Double", "Float", "Int", "Short", "UTF"]
+KNOWN_TYPES = ["boolean", "byte", "double", "float", "int", "short", "utf"]
 
-UNCHANGED_TYPES = ["Boolean", "Byte", "Double", "Float", "UTF"]
+UNSHIFTABLE_TYPES = ["boolean", "double", "float", "utf"]
 
 
 def parse_field_definition_shifted(line, field_type):
-    shift_operation = re.findall(r"this.(\w+) (>>>|<<) (\d+) \|", line)
+    if field_type == "int":
+        shift_operation = re.findall(r"this.(\w+) (>>>|<<) (\d+) \|", line)
+    else:
+        shift_operation = re.findall(r"this.(\w+)\) (>>>|<<) (\d+) \|", line)
     if len(shift_operation) < 1:
         raise RuntimeError(f"Shift operation not found: {line}")
     field_name, direction, amount = shift_operation[0]
@@ -167,7 +185,7 @@ def parse_field_definition_shifted(line, field_type):
     }
 
 
-def parse_field_definition_unshifted(line, field_type):
+def parse_field_definition_unshiftable(line, field_type):
     name = re.findall(r"param1.write\w+\(this.(\w+)\)", line)
     if len(name) < 1:
         raise RuntimeError(f"Could not parse name from line {line}")
@@ -178,24 +196,26 @@ def parse_field_definition_unshifted(line, field_type):
     }
 
 
-def parse_field_definition_of_changeable_type(line, field_type):
+def parse_field_definition_shiftable(line, field_type):
     # call different parser methods whether the variable is shifted or not
     shift_matches = re.findall(r"[|<>]", line)
     if len(shift_matches) > 0:
         return parse_field_definition_shifted(line, field_type)
-    return parse_field_definition_unshifted(line, field_type)
+    return parse_field_definition_unshiftable(line, field_type)
 
 
 def parse_field_definition(line, field_type):
     log_debug(f"[?] parse type {field_type}")
-    if field_type in UNCHANGED_TYPES:
-        return parse_field_definition_unshifted(line, field_type)
-    return parse_field_definition_of_changeable_type(line, field_type)
+    if field_type in UNSHIFTABLE_TYPES:
+        return parse_field_definition_unshiftable(line, field_type)
+    return parse_field_definition_shiftable(line, field_type)
 
 
 def parse_write_body(body: list):
     definitions = []
     state = "SEARCH"
+    # is either byte, short or int. used to encode the length of a vector of primitives or a module
+    current_field_length_type = None
     current_field = None
     log_debug_header("STATE: SEARCH")
     for line in body:
@@ -217,7 +237,7 @@ def parse_write_body(body: list):
                 state = "BODY"
                 log_debug_header("STATE: BODY")
                 continue
-            if len(re.findall(r"var _loc\d+_:\* = null;", line)) > 0:
+            if len(re.findall(r"var _loc\d+_:(\*|int|Number) = (null|0|NaN);", line)) > 0:
                 log_debug("[!] current line not yet packet id")
                 continue
             raise RuntimeError(f"Unknown text: {line}")
@@ -226,15 +246,16 @@ def parse_write_body(body: list):
             if len(re.findall(r"for|[{}]", line)) > 0:
                 log_debug("-> skip line")
             else:
+                definition = {
+                    "name": current_field,
+                    "length_type": current_field_length_type
+                }
                 if len(re.findall(r"write\(", line)) > 0:
-                    definition = {
-                        "name": current_field,
-                        "type": "arrayOfModules"
-                    }
-                    log_definition(definition)
-                    definitions.append(definition)
+                    definition["type"] = "arrayOfModules"
                 else:
-                    log_debug("not a module")
+                    definition["type"] = "arrayOfPrimitives"
+                log_definition(definition)
+                definitions.append(definition)
             if line.strip() == "}":
                 state = "BODY"
                 log_debug_header("STATE: BODY")
@@ -247,18 +268,30 @@ def parse_write_body(body: list):
             # TODO: if definition
             # TODO: detect length encoding => for loop
 
-            if len(re.findall(r"\.length", line)) > 0:
+            if len(re.findall(r"super\.write", line)) > 0:
+                log_debug("super call found!!!")
+                definitions.append(
+                    {
+                        "name": "super_call",
+                        "type:": "super_call"
+                    }
+                )
+                # raise RuntimeError("WIXXER")
+                continue
+
+            if len(re.findall(r"this\.\w+\.length", line)) > 0:
                 log_debug(line)
-                res = re.findall(r"this.(\w+)", line)
+                res = re.findall(r"param1\.write(\w+)\(this.(\w+)\.length", line)
                 if len(res) < 1:
                     raise RuntimeError(f"Unable to find field name in line: {line}")
-                current_field = res[0]
+                current_field_length_type = res[0][0]
+                current_field = res[0][1]
                 log_debug(f"Skip line {line}")
                 state = "BODY_ARRAY_DEFINITION"
                 log_debug_header("STATE: BODY_ARRAY_DEFINITION")
                 continue
             if len(re.findall("if", line)) > 0:
-                STATE = "BODY_IF"
+                state = "BODY_IF"
                 # TODO: find target field
                 continue
             # single line
@@ -266,7 +299,7 @@ def parse_write_body(body: list):
                 field_type = re.findall(r"write(\w+)", line)
                 if len(field_type) < 1:
                     raise RuntimeError(f"could not identify type: {line}")
-                field_type = field_type[0]
+                field_type = field_type[0].lower()
                 if field_type not in KNOWN_TYPES:
                     raise RuntimeError(f"Unknown type: {field_type}")
                 definition = parse_field_definition(line, field_type)
@@ -274,6 +307,7 @@ def parse_write_body(body: list):
                 definitions.append(definition)
                 continue
             pass
+    return definitions
 
 
 def serialize_packet_config(handle: IO):
@@ -285,11 +319,12 @@ def serialize_packet_config(handle: IO):
         print(f"Skipping file {handle.name}")
         return None
     module_name, module_base = parse_class_definition(body)
+    log_info_header(module_name)
     constants = parse_constants(body)
     constructor_definition = parse_constructor_definition(body, module_name)
     fields = parse_fields(body)
     module_id = parse_module_id(body)
-    parse_write_body(body)
+    write_body = parse_write_body(body)
     # print(f"   Constants: {constants}")
     # print("\n".join(body))
     return {
@@ -299,5 +334,6 @@ def serialize_packet_config(handle: IO):
         "base": module_base,
         "constants": constants,
         "constructorDefinition": constructor_definition,
-        "fields": fields
+        "fields": fields,
+        "writeBody": write_body
     }

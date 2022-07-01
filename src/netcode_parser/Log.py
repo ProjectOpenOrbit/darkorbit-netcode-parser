@@ -1,6 +1,6 @@
 debug_enabled = False
 code_log_enabled = False
-definitions_enabled = True
+definitions_enabled = False
 
 
 def log_info(text, prefix="\t"):
