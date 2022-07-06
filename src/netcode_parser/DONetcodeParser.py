@@ -11,7 +11,7 @@ def read_body(handle: IO) -> list:
 
 def find_class_def_line(body) -> str:
     for line in body:
-        if str(line).find("public class") > 0:
+        if str(line).find("public class") != -1:
             return line.strip()
 
 
@@ -46,7 +46,7 @@ def parse_class_definition(body) -> list:
 def parse_constants(body) -> list:
     constants = []
     for line in body:
-        if line.find("const const") > 0:
+        if line.find("const const") != -1:
             res = re.findall(r" const (\w+):(\w+) = (\w+)", line)
             if len(res) < 1:
                 raise RuntimeError(f"could not parse const definition in line {line}")
@@ -60,7 +60,7 @@ def parse_constants(body) -> list:
 
 def should_skip_class(body: list) -> bool:
     for line in body:
-        if line.find("Not decompiled") > 0:
+        if line.find("Not decompiled") != -1:
             return True
     return False
 
@@ -93,7 +93,7 @@ def parse_fields(body: list) -> list:
 
 def parse_constructor_definition(body, module_name):
     for line in body:
-        if line.find(f"function {module_name}") > 0:
+        if line.find(f"function {module_name}") != -1:
             res = re.findall(r"(param\d+):([\w.<>]+)", line)
             constructor_definition = []
             for match in res:
@@ -165,9 +165,18 @@ UNSHIFTABLE_TYPES = ["boolean", "double", "float", "utf"]
 
 def parse_field_definition_shifted(line, field_type):
     if field_type == "int":
-        shift_operation = re.findall(r"this.(\w+) (>>>|<<) (\d+) \|", line)
+        # shift_operation = re.findall(r"this.(\w+) (>>>|<<) (\d+) \|", line)
+        shift_operation = re.findall(r"this.(\w+) (>>>) (\d+)", line)
+    elif field_type == "short":
+        # shift_operation = re.findall(r"this.(\w+) (>>>|<<) (\d+) \|", line)
+        shift_operation = re.findall(r"this.(\w+)\) (>>>) (\d+)", line)
+    elif field_type == "arrayOfPrimitives":
+        # shift_operation = re.findall(r"(_loc\d+_) (>>>|<<) (\d+) \|", line)
+        # shift_operation = re.findall(r"(_loc\d+_) (>>>) (\d+)", line)
+        shift_operation = re.findall(r"(_loc\d+_)\)* (>>>) (\d+)", line)
     else:
-        shift_operation = re.findall(r"this.(\w+)\) (>>>|<<) (\d+) \|", line)
+        # shift_operation = re.findall(r"this.(\w+)\) (>>>|<<) (\d+) \|", line)
+        shift_operation = re.findall(r"this.(\w+)\) (>>>) (\d+)", line)
     if len(shift_operation) < 1:
         raise RuntimeError(f"Shift operation not found: {line}")
     field_name, direction, amount = shift_operation[0]
@@ -185,8 +194,11 @@ def parse_field_definition_shifted(line, field_type):
     }
 
 
-def parse_field_definition_unshiftable(line, field_type):
-    name = re.findall(r"param1.write\w+\(this.(\w+)\)", line)
+def parse_field_definition_unshifted(line, field_type):
+    if field_type == "arrayOfPrimitives":
+        name = re.findall(r"param1.write\w+\((_loc\d+_)\)", line)
+    else:
+        name = re.findall(r"param1.write\w+\(this.(\w+)\)", line)
     if len(name) < 1:
         raise RuntimeError(f"Could not parse name from line {line}")
     log_debug(name[0])
@@ -201,13 +213,13 @@ def parse_field_definition_shiftable(line, field_type):
     shift_matches = re.findall(r"[|<>]", line)
     if len(shift_matches) > 0:
         return parse_field_definition_shifted(line, field_type)
-    return parse_field_definition_unshiftable(line, field_type)
+    return parse_field_definition_unshifted(line, field_type)
 
 
 def parse_field_definition(line, field_type):
     log_debug(f"[?] parse type {field_type}")
     if field_type in UNSHIFTABLE_TYPES:
-        return parse_field_definition_unshiftable(line, field_type)
+        return parse_field_definition_unshifted(line, field_type)
     return parse_field_definition_shiftable(line, field_type)
 
 
@@ -221,12 +233,12 @@ def parse_write_body(body: list):
     for line in body:
         log_code(f"\t{line}")
         if state == "SEARCH":
-            if line.find("public function write") > 0:
+            if line.find("public function write") != -1:
                 state = "BODY_START"
                 log_debug_header("STATE: BODY_START")
-                continue
+            continue
         if state == "BODY_START":
-            if line.find("{"):
+            if line.find("{") != -1:
                 state = "BODY_FIND_PACKET_ID"
                 log_debug_header("STATE: BODY_FIND_PACKET_ID")
                 continue
@@ -250,23 +262,41 @@ def parse_write_body(body: list):
                     "name": current_field,
                     "length_type": current_field_length_type
                 }
+                # Example: _locX_.write(param1);
                 if len(re.findall(r"write\(", line)) > 0:
                     definition["type"] = "arrayOfModules"
+                # Example: param1.writeXXX(_locX_);
                 else:
                     definition["type"] = "arrayOfPrimitives"
+                    res_write_type = re.findall(r"write(\w+)", line)
+                    if len(res_write_type) < 1:
+                        raise RuntimeError(f"cannot parse type def for array of primitives: {line}")
+                    definition["subType"] = res_write_type[0].lower()
+                    res = parse_field_definition(line, definition["type"])
+                    if "shiftOperationFromClientToServer" in res:
+                        definition["shiftOperationFromClientToServer"] = res["shiftOperationFromClientToServer"]
+                    log_debug(res)
                 log_definition(definition)
                 definitions.append(definition)
             if line.strip() == "}":
                 state = "BODY"
                 log_debug_header("STATE: BODY")
             continue
+        if state == "BODY_SKIP_IF_ELSE":
+            if line.find("}") > 0:
+                state = "BODY"
+            continue
         if state == "BODY":
             line = line.strip()
             log_debug(f"[i] {line}")
-            # TODO: for definition
-            # TODO: while definition
-            # TODO: if definition
-            # TODO: detect length encoding => for loop
+
+            if line.find("for each") != -1:
+                state = "BODY_FOREACH"
+                res_fld = re.findall(r"for each\([_\w ]+this\.([_\w]+)\)", line)
+                if len(res_fld) < 1:
+                    raise RuntimeError("Cannot detect variable name in for statement header")
+                continue
+            # TODO: while definition ?? or is this only in the read function?
 
             if len(re.findall(r"super\.write", line)) > 0:
                 log_debug("super call found!!!")
@@ -276,7 +306,6 @@ def parse_write_body(body: list):
                         "type:": "super_call"
                     }
                 )
-                # raise RuntimeError("WIXXER")
                 continue
 
             if len(re.findall(r"this\.\w+\.length", line)) > 0:
@@ -290,9 +319,21 @@ def parse_write_body(body: list):
                 state = "BODY_ARRAY_DEFINITION"
                 log_debug_header("STATE: BODY_ARRAY_DEFINITION")
                 continue
-            if len(re.findall("if", line)) > 0:
-                state = "BODY_IF"
-                # TODO: find target field
+            if len(re.findall(r"if\(", line)) > 0:
+                res_fld = re.findall(r"if\([\w!= .]*this\.(\w+)[\w!= .]*\)", line)
+                if len(res_fld) < 1:
+                    raise RuntimeError(f"Field name not found in statement: {line}")
+                current_field = res_fld[0]
+                definitions.append(
+                    {
+                        "name": current_field,
+                        "type:": "submodule"
+                    }
+                )
+                state = "BODY_SKIP_IF_ELSE"
+                continue
+            if line.find("else") != -1:
+                state = "BODY_SKIP_IF_ELSE"
                 continue
             # single line
             if re.findall("param1", line):
@@ -306,7 +347,8 @@ def parse_write_body(body: list):
                 log_definition(definition)
                 definitions.append(definition)
                 continue
-            pass
+            continue
+        raise RuntimeError(f"Unhandled state: {state}")
     return definitions
 
 
@@ -319,7 +361,7 @@ def serialize_packet_config(handle: IO):
         print(f"Skipping file {handle.name}")
         return None
     module_name, module_base = parse_class_definition(body)
-    log_info_header(module_name)
+    log_debug_header(module_name)
     constants = parse_constants(body)
     constructor_definition = parse_constructor_definition(body, module_name)
     fields = parse_fields(body)
