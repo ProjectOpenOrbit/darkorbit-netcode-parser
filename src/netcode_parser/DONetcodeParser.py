@@ -62,6 +62,9 @@ def should_skip_class(body: list) -> bool:
     for line in body:
         if line.find("Not decompiled") != -1:
             return True
+        if line.find("createInstance(param1:int) : IModule") != -1:
+            # This is the ModuleFactory class. It contains no packet info we can parse.
+            return True
     return False
 
 
@@ -129,7 +132,7 @@ def parse_module_id(body):
         res = re.findall(r"param1.writeShort\((-*\d+)\)", line)
         if len(res) > 0:
             # print(res[0])
-            return res[0]
+            return int(res[0])
     raise RuntimeError("Could not parse module id: {}", "\n".join(body))
 
 
@@ -163,20 +166,32 @@ KNOWN_TYPES = ["boolean", "byte", "double", "float", "int", "short", "utf"]
 UNSHIFTABLE_TYPES = ["boolean", "double", "float", "utf"]
 
 
-def parse_field_definition_shifted(line, field_type):
+def parse_field_definition_shifted(line: str, field_type):
+
+    is_amount_calculated = line.find("%") != -1
+
+    log_debug(f"Parsing expression: {line}")
+    log_debug(f"Is amount calculated: {is_amount_calculated}")
+    re_without_expr = r"(>>>|<<) (\d+) \|"
+    re_with_expr = r"(>>>|<<) (\d+) \% \d+ \|"
+
+    re_used_expr = re_with_expr if is_amount_calculated else re_without_expr
+
     if field_type == "int":
         # shift_operation = re.findall(r"this.(\w+) (>>>|<<) (\d+) \|", line)
-        shift_operation = re.findall(r"this.(\w+) (>>>) (\d+)", line)
+        # shift_operation = re.findall(r"this.(\w+) (>>>|<<) (\d+) \% \d+ \|", line)
+        shift_operation = re.findall(r"this.(\w+) "+re_used_expr, line)
     elif field_type == "short":
         # shift_operation = re.findall(r"this.(\w+) (>>>|<<) (\d+) \|", line)
-        shift_operation = re.findall(r"this.(\w+)\) (>>>) (\d+)", line)
+        # shift_operation = re.findall(r"this.(\w+)\) (>>>|<<) (\d+) \% \d+ \|", line)
+        shift_operation = re.findall(r"this.(\w+)\) "+re_used_expr, line)
     elif field_type == "arrayOfPrimitives":
         # shift_operation = re.findall(r"(_loc\d+_) (>>>|<<) (\d+) \|", line)
         # shift_operation = re.findall(r"(_loc\d+_) (>>>) (\d+)", line)
-        shift_operation = re.findall(r"(_loc\d+_)\)* (>>>) (\d+)", line)
+        shift_operation = re.findall(r"(_loc\d+_)\)* "+re_used_expr, line)
     else:
         # shift_operation = re.findall(r"this.(\w+)\) (>>>|<<) (\d+) \|", line)
-        shift_operation = re.findall(r"this.(\w+)\) (>>>) (\d+)", line)
+        shift_operation = re.findall(r"this.(\w+)\) "+re_used_expr, line)
     if len(shift_operation) < 1:
         raise RuntimeError(f"Shift operation not found: {line}")
     field_name, direction, amount = shift_operation[0]
@@ -189,7 +204,7 @@ def parse_field_definition_shifted(line, field_type):
         "shiftOperationFromClientToServer":
             {
                 "direction": direction,
-                "amount": amount
+                "amount": int(amount)
             }
     }
 
@@ -249,7 +264,7 @@ def parse_write_body(body: list):
                 state = "BODY"
                 log_debug_header("STATE: BODY")
                 continue
-            if len(re.findall(r"var _loc\d+_:(\*|int|Number) = (null|0|NaN);", line)) > 0:
+            if len(re.findall(r"var _loc\d+_:(\*|int|Number|String|class_\d+|[A-Z]\w+) = (null|0|NaN);", line)) > 0:
                 log_debug("[!] current line not yet packet id")
                 continue
             raise RuntimeError(f"Unknown text: {line}")
