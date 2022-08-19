@@ -1,0 +1,19 @@
+param1.writeInt(this.name_96 << 2 % 32 | this.name_96 >>> 32 - 2 % 32);:int:2:left
+param1.writeInt(this.name_96 << 2 | this.name_96 >>> 30);:int:2:left
+param1.writeInt(this.name_67 << 7 % 32 | this.name_67 >>> 32 - 7 % 32);:int:7:left
+param1.writeInt(this.name_84 >>> 4 % 32 | this.name_84 << 32 - 4 % 32);:int:4:right
+param1.writeInt(this.amount >>> 14 % 32 | this.amount << 32 - 14 % 32);:int:14:right
+param1.writeInt(this.var_1354 >>> 1 % 32 | this.var_1354 << 32 - 1 % 32);:int:1:right
+param1.writeInt(this.kills >>> 1 % 32 | this.kills << 32 - 1 % 32);:int:1:right
+param1.writeInt(this.var_1422 << 11 % 32 | this.var_1422 >>> 32 - 11 % 32);:int:11:left
+param1.writeInt(this.var_2178 << 14 % 32 | this.var_2178 >>> 32 - 14 % 32);:int:14:left
+param1.writeInt(this.var_5282 << 9 % 32 | this.var_5282 >>> 32 - 9 % 32);:int:9:left
+param1.writeInt(this.var_1315 >>> 1 % 32 | this.var_1315 << 32 - 1 % 32);:int:1:right
+param1.writeShort(65535 & ((65535 & this.var_4482) >>> 1 % 16 | (65535 & this.var_4482) << 16 - 1 % 16));:short:1:right
+param1.writeShort(65535 & ((65535 & this.var_1234) >>> 14 % 16 | (65535 & this.var_1234) << 16 - 14 % 16));:short:14:right
+param1.writeShort(65535 & ((65535 & this.var_122) >>> 10 % 16 | (65535 & this.var_122) << 16 - 10 % 16));:short:10:right
+param1.writeShort(65535 & ((65535 & this.var_122) << 8 % 16 | (65535 & this.var_122) >>> 16 - 8 % 16));:short:8:left
+param1.writeShort(65535 & ((65535 & this.var_320) >>> 4 % 16 | (65535 & this.var_320) << 16 - 4 % 16));:short:4:right
+param1.writeShort(65535 & ((65535 & this.var_122) << 5 % 16 | (65535 & this.var_122) >>> 16 - 5 % 16));:short:5:left
+param1.writeInt(this.userId << 11 | this.userId >>> 21);:int:11:left
+param1.writeInt(this.var_3757 >>> 13 | this.var_3757 << 19);:int:13:right
