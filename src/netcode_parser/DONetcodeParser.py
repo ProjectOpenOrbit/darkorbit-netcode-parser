@@ -133,7 +133,24 @@ def parse_module_id(body):
         if len(res) > 0:
             # print(res[0])
             return int(res[0])
-    raise RuntimeError("Could not parse module id: {}", "\n".join(body))
+        # also check for hex representation
+        res = re.findall(r"param1.writeShort\(0x([abcdef\d]+)\)", line)
+        if len(res) > 0:
+            return int(res[0], 16)
+        # also check for calculations
+        res = re.findall(r"param1.writeShort\((-*\d+) \* (-*\d+)\)", line)
+        if len(res) > 0:
+            num1 = int(res[0][0])
+            num2 = int(res[0][1])
+            return num1 * num2
+        # also check for calculations
+        res = re.findall(r"param1.writeShort\((-*\d+) \* (-*\d+) \* (-*\d+)\)", line)
+        if len(res) > 0:
+            num1 = int(res[0][0])
+            num2 = int(res[0][1])
+            num3 = int(res[0][2])
+            return num1 * num2 * num3
+    raise RuntimeError("Could not parse module id for this body: {}", "\n".join(body))
 
 
 def serialize_packet_base(handle: IO):
