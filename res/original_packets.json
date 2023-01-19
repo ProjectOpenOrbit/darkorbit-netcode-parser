@@ -1,0 +1,24 @@
+{
+  "VersionRequest": {
+    "type": "REQUEST",
+    "variables": [
+      {
+        "name": "hash",
+        "type": "string"
+      }
+    ]
+  },
+  "MoveRequest": {
+    "type": "REQUEST",
+    "variables": [
+      {
+        "name": "targetX",
+        "type": "INT"
+      },
+      {
+        "name": "targetY",
+        "type": "INT"
+      }
+    ]
+  }
+}
