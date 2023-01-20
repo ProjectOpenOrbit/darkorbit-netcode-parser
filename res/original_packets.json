@@ -1,6 +1,6 @@
 {
   "VersionRequest": {
-    "type": "REQUEST",
+    "type": "request",
     "variables": [
       {
         "name": "hash",
@@ -8,16 +8,45 @@
       }
     ]
   },
-  "MoveRequest": {
-    "type": "REQUEST",
+  "LoginRequest": {
+    "type": "request",
     "variables": [
       {
-        "name": "targetX",
-        "type": "INT"
+        "name": "userID",
+        "type": "int"
       },
       {
-        "name": "targetY",
-        "type": "INT"
+        "name": "factionID",
+        "type": "int"
+      },
+      {
+        "name": "sessionID",
+        "type": "string"
+      },
+      {
+        "name": "version",
+        "type": "string"
+      },
+      {
+        "name": "instanceId",
+        "type": "int"
+      },
+      {
+        "name": "isPcClient",
+        "type": "boolean"
+      }
+    ]
+  },
+  "MoveRequest": {
+    "type": "request",
+    "variables": [
+      {
+        "name": "x",
+        "type": "int"
+      },
+      {
+        "name": "y",
+        "type": "int"
       }
     ]
   }
